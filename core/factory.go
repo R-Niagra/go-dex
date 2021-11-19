@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/R-Niagra/go-dex/erc20"
 )
@@ -11,6 +12,7 @@ type UniswapV2Factory struct {
 	GetPair  map[erc20.IErcToken]map[erc20.IErcToken]*UniswapV2Pair
 	AllPairs []*UniswapV2Pair
 	Address  string
+	mu       sync.Mutex
 }
 
 func NewFactory(_address string) *UniswapV2Factory {
@@ -43,8 +45,18 @@ func (fact *UniswapV2Factory) GetPoolPair(tokenA erc20.IErcToken, tokenB erc20.I
 	return nil
 }
 
+func (fact *UniswapV2Factory) GetPoolPairP(tokenA erc20.IErcToken, tokenB erc20.IErcToken) *UniswapV2Pair {
+	fact.mu.Lock()
+	defer fact.mu.Unlock()
+	if pair, ok := fact.GetPair[tokenA][tokenB]; ok {
+		return pair
+	}
+
+	return nil
+}
+
 //CreatePair creates a liquidity pool using two tokens if the pool doesn't exists before
-func (fact *UniswapV2Factory) CreatePair(tokenA erc20.IErcToken, tokenB erc20.IErcToken) (*UniswapV2Pair, error) {
+func (fact *UniswapV2Factory) CreatePair(tokenA erc20.IErcToken, tokenB erc20.IErcToken, pairAdd, ercAdd, senderAdd string) (*UniswapV2Pair, error) {
 	tokenAadd := tokenA.GetAddress()
 	tokenBadd := tokenB.GetAddress()
 
@@ -70,12 +82,21 @@ func (fact *UniswapV2Factory) CreatePair(tokenA erc20.IErcToken, tokenB erc20.IE
 	}
 
 	//creating pair
-	pair, err := CreatePair(tokenA, tokenB, fact.Address)
+	pair, err := CreatePair(tokenA, tokenB, fact.Address, pairAdd, ercAdd, senderAdd)
 	if err != nil {
 		return nil, err
 	}
 
+	if _, ok := fact.GetPair[token0]; !ok {
+		fact.GetPair[token0] = make(map[erc20.IErcToken]*UniswapV2Pair)
+	}
+
 	fact.GetPair[token0][token1] = pair
+
+	if _, ok := fact.GetPair[token1]; !ok {
+		fact.GetPair[token1] = make(map[erc20.IErcToken]*UniswapV2Pair)
+	}
+
 	fact.GetPair[token1][token0] = pair
 
 	fact.AllPairs = append(fact.AllPairs, pair)

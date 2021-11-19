@@ -2,6 +2,7 @@ package router
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/R-Niagra/go-dex/core"
 	"github.com/R-Niagra/go-dex/erc20"
@@ -10,6 +11,7 @@ import (
 
 type UniswapV2Router02 struct {
 	factory core.IUniswapV2Factory
+	mu      sync.Mutex
 }
 
 //NewRouter returns new instance of the router
@@ -22,13 +24,17 @@ func NewRouter(_factory core.IUniswapV2Factory) *UniswapV2Router02 {
 
 func (r *UniswapV2Router02) _addLiquidity(tokenA erc20.IErcToken, tokenB erc20.IErcToken, amountADesired uint64, amountBDesired uint64, amountAMin uint64, amountBMin uint64, to string) (uint64, uint64) {
 	if !r.factory.PairExists(tokenA, tokenB) { //create pair if it doesn't exists
-		r.factory.CreatePair(tokenA, tokenB)
+		fmt.Println("Pair doesn't exist. creating pair")
+		pairAdd := tokenA.TokenSymbol() + tokenB.TokenSymbol() + "Pair"
+		ercAdd := tokenA.TokenSymbol() + tokenB.TokenSymbol() + "ERC"
+		r.factory.CreatePair(tokenA, tokenB, pairAdd, ercAdd, to)
 	}
 	reserveA, reserveB := lib.GetReserves(r.factory, tokenA, tokenB)
 	if reserveA == 0 && reserveB == 0 { //if it is empty then the creater decides the rate
 		return amountADesired, amountBDesired
 	}
 
+	//Using rate find tokenB given the desired tokenA amount
 	amountBOptimal := lib.Quote(amountADesired, reserveA, reserveB)
 
 	if amountBOptimal <= amountBDesired {
@@ -55,10 +61,10 @@ func (r *UniswapV2Router02) AddLiquidity(tokenA erc20.IErcToken, tokenB erc20.IE
 
 	//send tokenA to pair contract address
 	tokenA.Transfer(senderAdd, pairAdd, amountA)
-	fmt.Println("AddLiquidity: tokenA send to pair Add")
+	fmt.Println("AddLiquidity: tokenA sent to pair Add")
 	//send tokenB to pair contract address
 	tokenB.Transfer(senderAdd, pairAdd, amountB)
-	fmt.Println("AddLiquidity: tokenB send to pair Add")
+	fmt.Println("AddLiquidity: tokenB sent to pair Add")
 
 	//TODO: add liquidity
 	pair := r.factory.GetPoolPair(tokenA, tokenB)
@@ -94,13 +100,46 @@ func (r *UniswapV2Router02) _swap(amounts []uint64, path []erc20.IErcToken, toAd
 //SwapExactTokensForTokens swaps the exact number of input tokens with the maximum output token if rate is within the range
 func (r *UniswapV2Router02) SwapExactTokensForTokens(amountIn uint64, amountOutMin uint64, path []erc20.IErcToken, toAdd string, senderAdd string) {
 	amounts := lib.GetAmountsOut(r.factory, amountIn, path)
-	if amounts[len(path)-1] < amountOutMin {
+	// fmt.Println("Output amount is: ", amounts[len(amounts)-1])
+	if amounts[len(amounts)-1] < amountOutMin {
 		panic("Insufficient output amount")
 	}
 
 	//transfer amountIn to the pair contract
 	pairAdd := lib.GetPairAddress(r.factory, path[0], path[1])
+	// fmt.Println("in swap, ", path[0].BalanceOf(pairAdd), pairAdd)
 
-	path[0].Transfer(senderAdd, pairAdd, amounts[0])
+	success := path[0].TransferFrom(senderAdd, pairAdd, amounts[0])
+	if !success {
+		panic("Transfer failed")
+	}
+	// fmt.Println("in swap2, ", path[0].BalanceOf(pairAdd), pairAdd)
 
+	r._swap(amounts, path, toAdd)
+}
+
+//SwapExactTokensForTokens swaps the exact number of input tokens with the maximum output token if rate is within the range
+func (r *UniswapV2Router02) SwapExactTokensForTokensP(amountIn uint64, amountOutMin uint64, path []erc20.IErcToken, toAdd string, senderAdd string, swapMu *sync.Mutex) {
+	// r.mu.Lock()
+
+	swapMu.Lock()
+	amounts := lib.GetAmountsOut(r.factory, amountIn, path)
+	fmt.Println("Output amount is: ", amounts[len(amounts)-1])
+	if amounts[len(amounts)-1] < amountOutMin {
+		panic("Insufficient output amount")
+	}
+
+	//transfer amountIn to the pair contract
+	pairAdd := lib.GetPairAddress(r.factory, path[0], path[1])
+	// fmt.Println("in swap, ", path[0].BalanceOf(pairAdd), pairAdd)
+
+	success := path[0].TransferFromP(senderAdd, pairAdd, amounts[0])
+	if !success {
+		panic("Transfer failed")
+	}
+	// fmt.Println("in swap2, ", path[0].BalanceOf(pairAdd), pairAdd)
+
+	r._swap(amounts, path, toAdd)
+	swapMu.Unlock()
+	// r.mu.Unlock()
 }

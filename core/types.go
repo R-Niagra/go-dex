@@ -30,7 +30,7 @@ type IUniswapV2Factory interface {
 
 	AllPairsLength() int
 
-	CreatePair(tokenA erc20.IErcToken, tokenB erc20.IErcToken) (*UniswapV2Pair, error)
+	CreatePair(tokenA erc20.IErcToken, tokenB erc20.IErcToken, pairAdd, ercAdd, senderAdd string) (*UniswapV2Pair, error)
 	// function createPair(address tokenA, address tokenB) external returns (address pair);
 
 	// function setFeeTo(address) external;
