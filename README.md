@@ -1,2 +1,2 @@
 # go-dex
-Dex(Uniswap) implementation in golang
+Dex(Uniswap) implementation in golang(not very clean)
